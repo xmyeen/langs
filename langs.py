@@ -2,6 +2,7 @@
 
 import os,sys,tempfile,subprocess,shutil
 from enum import Enum,unique
+from dataclasses import dataclass
 
 @unique
 class Ver(Enum):
@@ -9,6 +10,10 @@ class Ver(Enum):
     node = "10.1.0"
     python = "3.8.2"
     java = "11"
+    fvs = "1.0.0"
+
+
+LOCAL_MIRROR_ADDR_DEF = None
 
 NAME = "langs"
 MAINTAINER = "xmyeen@sina.com.cn"
@@ -18,7 +23,7 @@ PYTHON_VERSION_DEF = f"{Ver.python.value}"
 PYTHON_ARCHIVE_NAME_DEF = f"Python-{PYTHON_VERSION_DEF}"
 PYTHON_XZ_ARCHIVE_DEF = f'{PYTHON_ARCHIVE_NAME_DEF}.tar.xz'
 PYTHON_TAR_ARCHIVE_DEF,_ = os.path.splitext(PYTHON_XZ_ARCHIVE_DEF)
-PYTHON_ARCHIVE_URL_DEF = f"https://www.python.org/ftp/python/{PYTHON_VERSION_DEF}/{PYTHON_XZ_ARCHIVE_DEF}"
+PYTHON_ARCHIVE_URL_DEF = f"{LOCAL_MIRROR_ADDR_DEF or 'https://www.python.org'}/ftp/python/{PYTHON_VERSION_DEF}/{PYTHON_XZ_ARCHIVE_DEF}"
 PYTHON_HOME = f"/opt/{Ver.python.name}/"
 PYTHON_PREFIX_ROOT_DEF = f"{PYTHON_HOME}{PYTHON_VERSION_DEF}/"
 
@@ -30,14 +35,14 @@ NODE_VERSION_DEF = f"{Ver.node.value}"
 NODE_ARCHIVE_NAME_DEF = f"node-v{NODE_VERSION_DEF}-linux-x64"
 NODE_XZ_ARCHIVE_DEF = f"{NODE_ARCHIVE_NAME_DEF}.tar.xz"
 NODE_TAR_ARCHIVE_DEF,_ = os.path.splitext(NODE_XZ_ARCHIVE_DEF)
-NODE_ARCHIVE_URL_DEF = f"https://nodejs.org/dist/v{NODE_VERSION_DEF}/{NODE_XZ_ARCHIVE_DEF}"
+NODE_ARCHIVE_URL_DEF = f"{LOCAL_MIRROR_ADDR_DEF or 'https://nodejs.org'}/dist/v{NODE_VERSION_DEF}/{NODE_XZ_ARCHIVE_DEF}"
 NODE_HOME = f"/opt/{Ver.node.name}/"
 NODE_PREFIX_ROOT_DEF = f"{NODE_HOME}{NODE_VERSION_DEF}/"
 
-FVS_VERSION_DFE = "1.0.0"
+FVS_VERSION_DFE = f"{Ver.fvs.value}"
 FVS_ARCHIVE_NAME_DEF = f"fvs-{FVS_VERSION_DFE}-1"
 FVS_RPM_ARCHIVE_DEF = f"{FVS_ARCHIVE_NAME_DEF}.el7.noarch.rpm"
-FVS_ARCHIVE_URL_DEF = f"https://github.com/xmyeen/fvs/releases/download/{FVS_VERSION_DFE}-beta/{FVS_RPM_ARCHIVE_DEF}"
+FVS_ARCHIVE_URL_DEF = f"{LOCAL_MIRROR_ADDR_DEF or 'https://github.com'}/xmyeen/fvs/releases/download/{FVS_VERSION_DFE}-beta/{FVS_RPM_ARCHIVE_DEF}"
 
 RUSTUP_REGISTRY = "mirrors.sjtug.sjtu.edu.cn"
 
@@ -105,7 +110,7 @@ export PATH=\\${{PATH}}:{PYTHON_PREFIX_ROOT_DEF}bin
 EOF
 cd - > /dev/null
 
-sh -i --login << EOF
+sh -i -l <<EOF
 python3 -m pip install wheel
 EOF
 
@@ -167,9 +172,9 @@ export PATH=\\${{PATH}}:\\${{GOPATH}}/bin
 EOF
 
 #8. 安装文件服务器
-curl -skL -O ${FVS_ARCHIVE_URL_DEF} &&
-rpm -ivh ${FVS_RPM_ARCHIVE_DEF} &&
-rm -f ${FVS_RPM_ARCHIVE_DEF}
+curl -skL -O {FVS_ARCHIVE_URL_DEF} &&
+rpm -ivh {FVS_RPM_ARCHIVE_DEF} &&
+rm -f {FVS_RPM_ARCHIVE_DEF}
 
 #9. 构建ssh环境
 yum install -y openssh openssh-server openssh-client
