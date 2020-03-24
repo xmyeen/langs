@@ -19,7 +19,6 @@ PYTHON_ARCHIVE_NAME_DEF = f"Python-{PYTHON_VERSION_DEF}"
 PYTHON_XZ_ARCHIVE_DEF = f'{PYTHON_ARCHIVE_NAME_DEF}.tar.xz'
 PYTHON_TAR_ARCHIVE_DEF,_ = os.path.splitext(PYTHON_XZ_ARCHIVE_DEF)
 PYTHON_ARCHIVE_URL_DEF = f"https://www.python.org/ftp/python/{PYTHON_VERSION_DEF}/{PYTHON_XZ_ARCHIVE_DEF}"
-# PYTHON_ARCHIVE_URL_DEF = f"http://172.17.154.66:12345/updown/{PYTHON_XZ_ARCHIVE_DEF}"
 PYTHON_HOME = f"/opt/{Ver.python.name}/"
 PYTHON_PREFIX_ROOT_DEF = f"{PYTHON_HOME}{PYTHON_VERSION_DEF}/"
 
@@ -32,9 +31,13 @@ NODE_ARCHIVE_NAME_DEF = f"node-v{NODE_VERSION_DEF}-linux-x64"
 NODE_XZ_ARCHIVE_DEF = f"{NODE_ARCHIVE_NAME_DEF}.tar.xz"
 NODE_TAR_ARCHIVE_DEF,_ = os.path.splitext(NODE_XZ_ARCHIVE_DEF)
 NODE_ARCHIVE_URL_DEF = f"https://nodejs.org/dist/v{NODE_VERSION_DEF}/{NODE_XZ_ARCHIVE_DEF}"
-# NODE_ARCHIVE_URL_DEF = f"http://172.17.154.66:12345/updown/{NODE_XZ_ARCHIVE_DEF}"
 NODE_HOME = f"/opt/{Ver.node.name}/"
 NODE_PREFIX_ROOT_DEF = f"{NODE_HOME}{NODE_VERSION_DEF}/"
+
+FVS_VERSION_DFE = "1.0.0"
+FVS_ARCHIVE_NAME_DEF = f"fvs-{FVS_VERSION_DFE}-1"
+FVS_RPM_ARCHIVE_DEF = f"{FVS_ARCHIVE_NAME_DEF}.el7.noarch.rpm"
+FVS_ARCHIVE_URL_DEF = f"https://github.com/xmyeen/fvs/releases/download/{FVS_VERSION_DFE}-beta/{FVS_RPM_ARCHIVE_DEF}"
 
 RUSTUP_REGISTRY = "mirrors.sjtug.sjtu.edu.cn"
 
@@ -59,7 +62,7 @@ yum makecache
 
 #2. 设置中文环境
 echo "export LC_ALL=zh_CN.UTF-8"  >> /etc/locale.conf && 
-yum -y install langpacks-zh_CN && 
+yum install -y kde-l10n-Chinese && 
 yum -y reinstall glibc-common && 
 localedef -c -f UTF-8 -i zh_CN zh_CN.utf8
 cat >> ${{BASH_PROFILE}} <<EOF
@@ -69,9 +72,10 @@ export LANG=zh_CN.UTF-8
 export LANGUAGE=zh_CN:zh
 export LC_ALL=zh_CN.UTF-8
 EOF
+source ${{BASH_PROFILE}}
 
 #3. 安装基础软件
-yum install -y vim unzip bzip2 git svn
+yum install -y vim unzip bzip2 git svn rpm-build
 
 #4. 安装c++开发环境
 yum install -y gcc gcc-c++ make glibc cmake3
@@ -85,6 +89,14 @@ cd ${{BUILD_ROOT}}{PYTHON_ARCHIVE_NAME_DEF}
 ./configure --prefix={PYTHON_PREFIX_ROOT_DEF} --enable-shared --with-libs='/usr/lib64/libcrypto.so /usr/lib64/libssl.so' --with-ssl
 make
 make install
+cat > /etc/pip.conf <<EOF
+[global]
+index-url = https://mirrors.aliyun.com/pypi/simple/ 
+trusted-host = mirrors.aliyun.com
+disable-pip-version-check = false
+timeout = 120
+EOF
+
 cat >> ${{BASH_PROFILE}} <<EOF
 
 # Python
@@ -92,6 +104,10 @@ export LD_LIBRARY_PATH={PYTHON_PREFIX_ROOT_DEF}lib:${{LD_LIBRARY_PATH}}
 export PATH=\\${{PATH}}:{PYTHON_PREFIX_ROOT_DEF}bin
 EOF
 cd - > /dev/null
+
+sh -i --login << EOF
+python3 -m pip install wheel
+EOF
 
 #5. 安装java开发环境
 yum install -y {JAVA_YUM_PACKAGE_NAME_DEF} {JAVA_YUM_PACKAGE_NAME_DEF}-devel maven
@@ -118,8 +134,8 @@ export PATH=\\${{PATH}}:{NODE_PREFIX_ROOT_DEF}bin
 EOF
 
 #7. 安装rust开发环境
-RUSTUP_DIST_SERVER=https://{RUSTUP_REGISTRY}/rust-static
-RUSTUP_UPDATE_ROOT=${{RUSTUP_DIST_SERVER}}/rustup
+export RUSTUP_DIST_SERVER=https://{RUSTUP_REGISTRY}/rust-static
+export RUSTUP_UPDATE_ROOT=${{RUSTUP_DIST_SERVER}}/rustup
 
 curl https://sh.rustup.rs -sSf | sh -s -- -y
 
@@ -150,7 +166,12 @@ export GOPATH=${{GO_WORKSPACE}}
 export PATH=\\${{PATH}}:\\${{GOPATH}}/bin
 EOF
 
-#8. 构建ssh环境
+#8. 安装文件服务器
+curl -skL -O ${FVS_ARCHIVE_URL_DEF} &&
+rpm -ivh ${FVS_RPM_ARCHIVE_DEF} &&
+rm -f ${FVS_RPM_ARCHIVE_DEF}
+
+#9. 构建ssh环境
 yum install -y openssh openssh-server openssh-client
 mkdir -p /var/run/sshd
 echo "root:abc123" | chpasswd
@@ -168,14 +189,13 @@ sed -i /etc/ssh/sshd_config \\
     -e 's~^\\(.*\\)/usr/libexec/openssh/sftp-server$~\\1internal-sftp~g'
 
 #9. 生成启动脚本(改为使用systemd服务，让容器更像虚拟机，所以无需单独的启动脚本了)
-# cat >> {ENTRYPOINT_SCRIPT_PATH} <<EOF
-# #!/bin/sh
-# cat /etc/motd
-# /bin/sh -c "exec /usr/sbin/init"
-
-# /usr/sbin/sshd -D
-# EOF
-# chmod +x {ENTRYPOINT_SCRIPT_PATH}
+cat >> {ENTRYPOINT_SCRIPT_PATH} <<EOF
+#!/bin/sh
+cat /etc/motd
+/bin/sh -c "sleep 30s && systemctl start sshd.service" 2>&1 &
+/usr/sbin/init
+EOF
+chmod +x {ENTRYPOINT_SCRIPT_PATH}
 
 #10. 安装证书
 # 安装证书
@@ -209,9 +229,9 @@ RUN \\
 	echo "Built in `date "+%Y%m%dT%H%M%S%z"`" >> /etc/motd; \\
 	# 将环境变量写到/etc/profile里面，保证SSH登录的时候能够正确使用
 	# 执行编译脚本
-	sh /tmp/${{builder_sh}} \\
+	sh /tmp/${{builder_sh}}; \\
 	# 删除编译脚本
-	rm -f /tmp/${{build_sh}} \\
+	rm -f /tmp/${{build_sh}}; \\
 	# 设置{os.path.basename(ENTRYPOINT_SCRIPT_PATH)}脚本可用
 	# chmod 755 {ENTRYPOINT_SCRIPT_PATH}
 	(cd /lib/systemd/system/sysinit.target.wants/; \\
@@ -224,12 +244,13 @@ RUN \\
 	rm -f /lib/systemd/system/basic.target.wants/*; \\
 	rm -f /lib/systemd/system/anaconda.target.wants/*;
 
-EXPOSE 22 8080
+EXPOSE 22 8080 34433
 
 VOLUME [ "/sys/fs/cgroup" ]
 
-# CMD ["{ENTRYPOINT_SCRIPT_PATH}"]
-CMD ["/usr/sbin/init"]
+CMD ["{ENTRYPOINT_SCRIPT_PATH}"]
+# CMD ["/usr/sbin/sshd -D"]
+# CMD ["/usr/sbin/init"]
 '''
 
 tmpdir = tempfile.mkdtemp()
