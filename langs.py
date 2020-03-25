@@ -7,7 +7,7 @@ from dataclasses import dataclass
 @unique
 class Ver(Enum):
     centos = "7"
-	cmake = "3.17.0"
+	cmake = "3.15.2"
     node = "10.1.0"
     python = "3.8.2"
     java = "11"
@@ -23,7 +23,7 @@ IMG_FROM = f"centos:centos{Ver.centos.value}"
 CMAKE_VERSION_DEF = f"{Ver.cmake.value}"
 CMAKE_ARCHIVE_NAME_DEF = f"cmake-{CMAKE_VERSION_DEF}-Linux-x86_64"
 CMAKE_GZ_ARCHIVE_DEF = f"{CMAKE_ARCHIVE_NAME_DEF}.tar.gz"
-CMAKE_ARCHIVE_URL_DEF = f"{ LOCAL_MIRROR_ADDR_DEF or "https://github.com"}/Kitware/CMake/releases/download/v{CMAKE_ARCHIVE_NAME_DEF}/{CMAKE_GZ_ARCHIVE_DEF}"
+CMAKE_ARCHIVE_URL_DEF = f"{ LOCAL_MIRROR_ADDR_DEF or 'https://github.com'}/Kitware/CMake/releases/download/v{CMAKE_ARCHIVE_NAME_DEF}/{CMAKE_GZ_ARCHIVE_DEF}"
 CMAKE_HOME = f"/opt/{Ver.cmake.name}/"
 CMAKE_PREFIX_ROOT_DEF = f"{CMAKE_HOME}{CMAKE_VERSION_DEF}/"
 
