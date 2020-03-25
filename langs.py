@@ -7,6 +7,7 @@ from dataclasses import dataclass
 @unique
 class Ver(Enum):
     centos = "7"
+	cmake = "3.17.0"
     node = "10.1.0"
     python = "3.8.2"
     java = "11"
@@ -19,6 +20,13 @@ NAME = "langs"
 MAINTAINER = "xmyeen@sina.com.cn"
 IMG_FROM = f"centos:centos{Ver.centos.value}"
 
+CMAKE_VERSION_DEF = f"{Ver.cmake.value}"
+CMAKE_ARCHIVE_NAME_DEF = f"cmake-{CMAKE_VERSION_DEF}-Linux-x86_64"
+CMAKE_GZ_ARCHIVE_DEF = f"{CMAKE_ARCHIVE_NAME_DEF}.tar.gz"
+CMAKE_ARCHIVE_URL_DEF = f"{ LOCAL_MIRROR_ADDR_DEF or "https://github.com"}/Kitware/CMake/releases/download/v{CMAKE_ARCHIVE_NAME_DEF}/{CMAKE_GZ_ARCHIVE_DEF}"
+CMAKE_HOME = f"/opt/{Ver.cmake.name}/"
+CMAKE_PREFIX_ROOT_DEF = f"{CMAKE_HOME}{CMAKE_VERSION_DEF}/"
+
 PYTHON_VERSION_DEF = f"{Ver.python.value}"
 PYTHON_ARCHIVE_NAME_DEF = f"Python-{PYTHON_VERSION_DEF}"
 PYTHON_XZ_ARCHIVE_DEF = f'{PYTHON_ARCHIVE_NAME_DEF}.tar.xz'
@@ -26,7 +34,6 @@ PYTHON_TAR_ARCHIVE_DEF,_ = os.path.splitext(PYTHON_XZ_ARCHIVE_DEF)
 PYTHON_ARCHIVE_URL_DEF = f"{LOCAL_MIRROR_ADDR_DEF or 'https://www.python.org'}/ftp/python/{PYTHON_VERSION_DEF}/{PYTHON_XZ_ARCHIVE_DEF}"
 PYTHON_HOME = f"/opt/{Ver.python.name}/"
 PYTHON_PREFIX_ROOT_DEF = f"{PYTHON_HOME}{PYTHON_VERSION_DEF}/"
-
 
 JAVA_YUM_PACKAGE_NAME_DEF = f"java-{Ver.java.value}-openjdk"
 JAVA_HOME = f"/usr/lib/jvm/{JAVA_YUM_PACKAGE_NAME_DEF}/"
@@ -83,7 +90,17 @@ source ${{BASH_PROFILE}}
 yum install -y vim unzip bzip2 git svn rpm-build
 
 #4. 安装c++开发环境
-yum install -y gcc gcc-c++ make glibc cmake3
+yum install -y gcc gcc-c++ make glibc
+mkdir -p {CMAKE_HOME}
+curl -skL -o ${{ARCHIVES_ROOT}}{CMAKE_GZ_ARCHIVE_DEF} {CMAKE_ARCHIVE_URL_DEF} &&
+tar zxvf ${{ARCHIVES_ROOT}}{CMAKE_GZ_ARCHIVE_DEF} -C {CMAKE_HOME}
+mv {CMAKE_HOME}{CMAKE_ARCHIVE_NAME_DEF} {os.path.dirname(CMAKE_PREFIX_ROOT_DEF)}
+cat >> ${{BASH_PROFILE}} <<EOF
+
+# cmake
+export LD_LIBRARY_PATH={CMAKE_PREFIX_ROOT_DEF}lib:\\${{LD_LIBRARY_PATH}}
+export PATH=\\${{PATH}}:{CMAKE_PREFIX_ROOT_DEF}bin
+EOF
 
 #5. 安装python开发环境
 yum install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel libffi-devel
@@ -111,6 +128,7 @@ EOF
 cd - > /dev/null
 
 sh -i -l <<EOF
+source ${{BASH_PROFILE}}
 python3 -m pip install wheel
 EOF
 
@@ -197,8 +215,9 @@ sed -i /etc/ssh/sshd_config \\
 cat >> {ENTRYPOINT_SCRIPT_PATH} <<EOF
 #!/bin/sh
 cat /etc/motd
-/bin/sh -c "sleep 30s && systemctl start sshd.service" 2>&1 &
-/usr/sbin/init
+/bin/sh -c "exec /usr/sbin/init"
+
+/usr/sbin/sshd -D
 EOF
 chmod +x {ENTRYPOINT_SCRIPT_PATH}
 
