@@ -382,7 +382,7 @@ class ShCoder(object):
             return
 
         for p in pkgs:
-            lines.append(f'--- Install {p.name}')
+            lines.append(f'#--- Install {p.name}')
             lines.append(f'rpm -ivh {self.get_url(p)}')
 
         return '\n'.join(lines)
