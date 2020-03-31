@@ -1,6 +1,6 @@
 #!/env/Python
 
-import os,sys,tempfile,subprocess,shutil,configparser
+import os,sys,tempfile,subprocess,shutil,configparser,warnings
 from urllib import parse
 from enum import Enum,unique
 from collections import namedtuple
@@ -174,7 +174,7 @@ version =
 group = {GroupDefs.tool.name}
 install = {InstallDefs.rpm.name}
 version = 1.0.0
-url = https://github.com/xmyeen/fvs/releases/download/{{version}}-beta/fvs-{{version}}-1.el7.noarch{CompressionDefs.RPM.value}
+url = https://github.com/xmyeen/fvs/releases/download/{{version}}-beta.3/fvs-{{version}}-1.el7.noarch{CompressionDefs.RPM.value}
 '''
 
 @dataclass
@@ -186,8 +186,6 @@ class Pkg:
     url : str
 
 class ShCoder(object):
-    local_mirror_addr = None
-
     def __init__(self, internal_hub = None, *groups):
         self.__internal_hub = internal_hub
         self.__groups = groups
@@ -200,7 +198,7 @@ class ShCoder(object):
 
     @property
     def maintainer(self):
-        return "xmyeen@sina.com.cn"
+        return "xmyeen xmyeen@sina.com.cn"
 
     @property
     def internal_hub(self):
@@ -232,10 +230,10 @@ class ShCoder(object):
         self.__cp.read_string(cfg_str)
 
     def get_centos_image_info(self):
-        return f"centos:centos:{OperateSystemDef.centos.value}"
+        return f"centos:centos{OperateSystemDef.centos.value}"
 
     def get_local_mirror_address(self, name):
-        return self.local_mirror_addr + '/' + name
+        return self.__internal_hub + '/' + name
 
     def configure_yum_repos(self, *names):
         ''' 设置YUM镜像的代码片段
@@ -244,10 +242,10 @@ class ShCoder(object):
         
         lines.append("rm -rf /etc/yum.repos.d/*")
 
-        lines.extend([
-            f'echo "--- Add usts repository"',
-            f'curl -k -s -L -o /etc/yum.repos.d/CentOS-Base.repo https://lug.ustc.edu.cn/wiki/_export/code/mirrors/help/centos?codeblock=3'
-        ])
+        # lines.extend([
+        #     f'echo "--- Add usts repository"',
+        #     f'curl -k -s -L -o /etc/yum.repos.d/CentOS-Base.repo https://lug.ustc.edu.cn/wiki/_export/code/mirrors/help/centos?codeblock=3'
+        # ])
 
         name = 'aliyun'
         if not names or name.lower() in names:
@@ -318,7 +316,7 @@ class ShCoder(object):
             if url.startswith('file://'):
                 lines.append(f'mv -f {url[7:]} {self.archive_home}')
             elif url.startswith('http'):
-                lines.append(f"curl -skL {filepath} {url}")
+                lines.append(f"curl -skL -o {filepath} {url}")
         else:
             Warning.warn(f"Code downloading failed - install({install});url({url})")
             return
@@ -345,7 +343,7 @@ class ShCoder(object):
         # elif filepath.endswith(CompressionDefs.RPM.value):
         #     lines.append(f"cd {output_dir} && {{ rpm2cpio {filepath} | cpio -div }} && cd - >/dev/null")
         if output_dir:
-            lines.append(f"find $temp_dir -maxdepth 1 -mindepth 1 -type d -execdir mv -f {{}} {output_dir} \; &&")
+            lines.append(f"find $temp_dir -maxdepth 1 -mindepth 1 -type d -execdir mv -vf {{}} {output_dir} \; &&")
             lines.append("rm -rf $temp_dir &&")
             lines.append("unset temp_dir &&")
             lines.append(f"output_dir={output_dir}")
@@ -559,7 +557,7 @@ class ShCoder(object):
         return content_str
 
     def after_group_common(self):
-        return ''
+        return "git config --global http.sslVerify false"
 
     def after_group_cpp(self):
         return ''
@@ -585,8 +583,8 @@ class ShCoder(object):
         BASH_PROFILE="${{HOME}}/.bashrc"
 
         #生成目录
-        mkdir -p ${{ARCHIVES_ROOT}} 
-        cd ${{BUILD_ROOT}}
+        mkdir -p {self.archive_home}
+        cd {self.__build_root}
 
         #国内YUM镜像
         {self.configure_yum_repos()}
@@ -611,9 +609,8 @@ class ShCoder(object):
         cat >> {ENTRYPOINT_SCRIPT_PATH} <<EOF
         #!/bin/sh
         cat /etc/motd
-        #/bin/sh -c "exec /usr/sbin/init"
-        #/usr/sbin/sshd -D
-        /usr/sbin/init
+        systemctl enable sshd.service
+        exec /usr/sbin/init
         EOF
         chmod +x {ENTRYPOINT_SCRIPT_PATH}
 
@@ -626,7 +623,7 @@ class ShCoder(object):
         # update-ca-trust
 
         #清理
-        rm -rf ${{BUILD_ROOT}}
+        rm -rf {self.__build_root}
         yum clean all
 
         #结束
@@ -637,7 +634,6 @@ class ShCoder(object):
         return content_str
 
     def get_dockerfile_content(self):
-        ENTRYPOINT_SCRIPT_PATH = "/usr/bin/forever"
         language_str = " ".join([ name for name, en in GroupDefs.__members__.items() if 100 <= en.value ])
 
         content_str = f'''
@@ -647,9 +643,7 @@ class ShCoder(object):
 
         ENV LANG="zh_CN.UTF-8" LC_ALL="zh_CN.UTF-8" LANGUAGE="zh_CN:zh"
 
-        LABEL \\
-            description="集合多种开发语言环境"
-            language="{language_str}"
+        LABEL description="集合多种开发语言环境" language="{language_str}"
 
         ARG builder_sh
         ADD ${{builder_sh}} /tmp/
@@ -687,43 +681,47 @@ class ShCoder(object):
         return content_str
 
 
-coder = ShCoder(None, *[ e for e in GroupDefs.__members__ ])
-coder.load_configuration(PKG_INFO_STR)
-
 try:
-    with tempfile.NamedTemporaryFile(mode='w+', dir=tmpdir) as dockerfile_f:
-        dockerfile_f.write(coder.get_dockerfile_content())
-        dockerfile_f.flush()
+    coder = ShCoder(None, *[ e for e in GroupDefs.__members__ ])
+    coder.load_configuration(PKG_INFO_STR)
 
-        sh_f = tempfile.NamedTemporaryFile(mode='w+', dir=tmpdir)
-        sh_f.write(coder.get_software_script_content())
-        sh_f.flush()
+    with tempfile.TemporaryDirectory() as build_tmp_dir:
+        with tempfile.NamedTemporaryFile(mode='w+', dir=build_tmp_dir) as dockerfile_f:
+            with tempfile.NamedTemporaryFile(mode='w+', dir=build_tmp_dir) as software_script_f:
+                dockerfile_f.write(coder.get_dockerfile_content())
+                dockerfile_f.flush()
 
-        cmdline = ' '.join([
-            'docker',
-            'build',
-            '--force-rm',
-            # '--pull',
-            '--no-cache',
-            '--build-arg HTTP_PROXY=${HTTP_PROXY}',
-            '--build-arg HTTPS_PROXY=${HTTPS_PROXY}',
-            f'--build-arg builder_sh={os.path.basename(sh_f.name)}',
-            f'-t {NAME}:latest',
-            f'-f {dockerfile_f.name}',
-            tmpdir
-        ])
-        print(f'Command: {cmdline}')
-        
-        # if subprocess.call(f'docker build {" ".join(cmdline_opts)} .', shell=True):
-        #     print("Build image failed")
-        if subprocess.call(cmdline, shell=True, cwd=tmpdir):
-            print("Build image failed")
+                software_script_f.write(coder.get_software_script_content())
+                software_script_f.flush()
 
-        sh_f.seek(0)
-        sh_f.close()
-        dockerfile_f.seek(0)
-except:
-    pass
+                cmdline = ' '.join([
+                    'docker',
+                    'build',
+                    '--force-rm',
+                    # '--pull',
+                    '--no-cache',
+                    '--build-arg HTTP_PROXY=${HTTP_PROXY}',
+                    '--build-arg HTTPS_PROXY=${HTTPS_PROXY}',
+                    f'--build-arg builder_sh={os.path.basename(software_script_f.name)}',
+                    f'-t {coder.name}:latest',
+                    f'-f {dockerfile_f.name}',
+                    build_tmp_dir
+                ])
+                print(f'Command: {cmdline}')
+                
+                # if subprocess.call(f'docker build {" ".join(cmdline_opts)} .', shell=True):
+                #     print("Build image failed")
+                if subprocess.call(cmdline, shell=True, cwd=build_tmp_dir):
+                    print("Build image failed")
 
-shutil.rmtree(tmpdir, ignore_errors=True)
-# os.removedirs(tmpdir)
+                software_script_f.seek(0)
+                dockerfile_f.seek(0)
+
+                print(coder.get_software_script_content())
+                print(coder.get_dockerfile_content())
+
+    # shutil.rmtree(build_tmp_dir, ignore_errors=True)
+    # os.removedirs(tmpdir)
+except BaseException as e:
+    warnings.warn(e)
+
